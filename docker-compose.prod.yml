@@ -1,0 +1,77 @@
+# Production stack. Only Caddy is exposed publicly; db, backend and the
+# frontend talk over the internal Docker network. Caddy terminates TLS and
+# auto-provisions Let's Encrypt certs when SITE_ADDRESS is a real hostname.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Required in .env: POSTGRES_PASSWORD, JWT_SECRET, SEED_ADMIN_PASSWORD.
+# Set SITE_ADDRESS=wms.example.com for automatic HTTPS (defaults to :80 by IP).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-wms}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No published ports — internal network only.
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-wms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-wms}
+      PORT: 4000
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?set a long random JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD in .env}
+      SEED_DEMO: ${SEED_DEMO:-false}
+    # No published ports — reached only via the frontend over the internal network.
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Same-origin: the browser calls /api, nginx proxies to the backend.
+        VITE_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    # No published ports — Caddy proxies to it internally.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

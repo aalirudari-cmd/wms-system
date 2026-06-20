@@ -32,6 +32,10 @@ async function seed() {
       console.log(`Seeded admin user "${config.seed.adminUsername}".`);
     }
 
+    // Demo data (sample users, locations, products, stock) is for evaluation
+    // only. Production sets SEED_DEMO=false so just the admin account exists.
+    if (!config.seed.demo) return;
+
     // Sample manager + worker so roles can be tried immediately.
     const demoUsers = [
       ['manager', 'manager123', 'Warehouse Manager', 'manager'],

@@ -1,0 +1,10 @@
+# SITE_ADDRESS is injected by docker-compose.prod.yml.
+#   - a hostname (wms.example.com) → Caddy gets a free Let's Encrypt cert (HTTPS)
+#   - ":80" (the default) → plain HTTP, reachable by server IP
+#
+# Note: phone camera barcode scanning (getUserMedia) only works over HTTPS,
+# so set a real hostname once DNS is pointed at the server.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy frontend:80
+}

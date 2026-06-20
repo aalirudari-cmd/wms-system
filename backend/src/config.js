@@ -19,5 +19,7 @@ export const config = {
   seed: {
     adminUsername: process.env.SEED_ADMIN_USERNAME || 'admin',
     adminPassword: process.env.SEED_ADMIN_PASSWORD || 'admin123',
+    // Demo users (manager/worker) and sample warehouse data. Off in production.
+    demo: process.env.SEED_DEMO !== 'false',
   },
 };
