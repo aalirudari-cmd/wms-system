@@ -256,6 +256,29 @@ table.data tbody tr:hover { background: #FAFBFC; }
 .toast.ok { background: var(--green); }
 @keyframes toastin { from { transform: translateY(10px); opacity: 0; } }
 
+/* ---------- Handheld launcher menu (PDA home) ---------- */
+.menu-head { margin-bottom: 18px; }
+.menu-hello { font-family: var(--font-display); font-size: 23px; font-weight: 700; letter-spacing: -.02em; }
+.menu-summary { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 4px; letter-spacing: .02em; }
+.menu-tiles { display: flex; flex-direction: column; gap: 12px; }
+.menu-tile {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  padding: 15px 16px; border-radius: 16px; border: none; cursor: pointer;
+  text-align: left; color: #fff; background: var(--tile, #334155);
+  box-shadow: 0 6px 18px rgba(14, 18, 23, .16); transition: transform .05s ease;
+}
+.menu-tile:active { transform: scale(.99); }
+.menu-tile-ic { width: 46px; height: 46px; flex: none; border-radius: 13px; background: rgba(255, 255, 255, .2); display: grid; place-items: center; }
+.menu-tile-tx { flex: 1; min-width: 0; }
+.menu-tile-tt { display: block; font-family: var(--font-display); font-weight: 600; font-size: 17px; line-height: 1.2; }
+.menu-tile-sb { display: block; font-size: 12px; opacity: .9; margin-top: 2px; }
+.menu-tile-badge { background: rgba(255, 255, 255, .25); color: #fff; font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.menu-chev { opacity: .85; flex: none; }
+/* Roomier handhelds & tablets: two columns. */
+@media (min-width: 560px) {
+  .menu-tiles { display: grid; grid-template-columns: 1fr 1fr; }
+}
+
 /* ============================================================
    Responsive — PC, PDA (handheld) and mobile
    ============================================================ */

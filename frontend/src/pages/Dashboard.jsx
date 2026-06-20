@@ -1,10 +1,20 @@
 import { useFetch } from '../api/useFetch.js';
+import { useIsMobile } from '../api/useMedia.js';
 import { Stat, Spinner, Badge, BarChart, Empty } from '../components/ui.jsx';
+import MobileMenu from '../components/MobileMenu.jsx';
 import Icon from '../components/Icon.jsx';
 
 const MOVE_TONE = { receipt: 'green', shipment: 'blue', adjustment: 'amber', transfer: 'gray' };
 
+// On handhelds the home screen is the launcher menu; on desktop it's the full
+// analytics dashboard. Branching at this wrapper keeps hook order stable when
+// the viewport crosses the breakpoint.
 export default function Dashboard() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileMenu /> : <DesktopDashboard />;
+}
+
+function DesktopDashboard() {
   const { data, loading, error } = useFetch('/dashboard');
 
   if (loading) return <Spinner label="Loading dashboard…" />;
