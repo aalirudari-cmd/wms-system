@@ -164,6 +164,14 @@ a { color: inherit; text-decoration: none; }
 .card-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
 .card-head h3 { font-size: 15px; }
 .grid { display: grid; gap: 18px; }
+/* Grid/flex children default to min-width:auto, which lets wide tables push the
+   page past the viewport. Pinning min-width:0 lets .table-wrap scroll instead. */
+.grid > *, .stats > * { min-width: 0; }
+.card { min-width: 0; }
+
+/* Two-column splits that collapse to one column on small screens. */
+.split { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.split.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .section-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 4px 0 12px; }
 
 /* Stat tiles */
@@ -261,6 +269,7 @@ table.data tbody tr:hover { background: #FAFBFC; }
   .hamburger { display: grid; place-items: center; }
   .content { padding: 18px 16px 88px; }     /* room for bottom nav */
   .topbar { padding: 0 16px; }
+  .split, .split.even { grid-template-columns: 1fr; }   /* stack on handheld */
 
   /* Bottom action bar tuned for handheld scanners & thumbs. */
   .bottomnav {

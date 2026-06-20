@@ -33,7 +33,7 @@ export default function Reports() {
         <button className="btn btn-ghost btn-sm" onClick={exportCsv}><Icon name="report" size={15} /> Export stock CSV</button>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
+      <div className="split even">
         {/* Throughput by type */}
         <div className="card">
           <div className="card-head"><Icon name="movements" size={18} /><h3>Throughput by type</h3></div>

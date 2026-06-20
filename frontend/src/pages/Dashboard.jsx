@@ -22,7 +22,7 @@ export default function Dashboard() {
         <Stat label="Open shipments" value={totals.open_shipments} icon="outbound" />
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)' }}>
+      <div className="split">
         {/* Throughput chart */}
         <div className="card">
           <div className="card-head">
