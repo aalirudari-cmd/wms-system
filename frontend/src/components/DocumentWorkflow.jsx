@@ -104,22 +104,22 @@ function CreateModal({ cfg, onClose, onDone }) {
       </>}
     >
       <div className="form-row">
-        <div className="field"><label>Reference</label><input className="input mono" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+        <div className="field"><label>Reference</label><input data-testid="doc-reference" className="input mono" value={reference} onChange={(e) => setReference(e.target.value)} /></div>
         <div className="field"><label>{cfg.partyLabel}</label><input className="input" value={party} onChange={(e) => setParty(e.target.value)} placeholder={cfg.partyPlaceholder} /></div>
       </div>
 
       <div className="section-title" style={{ marginTop: 8 }}>Lines</div>
       {lines.map((l, i) => (
         <div key={i} className="row" style={{ marginBottom: 8, gap: 8 }}>
-          <select className="select" style={{ flex: 2 }} value={l.product_id} onChange={(e) => setLine(i, 'product_id', e.target.value)}>
+          <select data-testid="line-product" className="select" style={{ flex: 2 }} value={l.product_id} onChange={(e) => setLine(i, 'product_id', e.target.value)}>
             <option value="">Product…</option>
             {products?.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
           </select>
-          <select className="select" style={{ flex: 1.4 }} value={l.location_id} onChange={(e) => setLine(i, 'location_id', e.target.value)}>
+          <select data-testid="line-location" className="select" style={{ flex: 1.4 }} value={l.location_id} onChange={(e) => setLine(i, 'location_id', e.target.value)}>
             <option value="">Location…</option>
             {locations?.map((loc) => <option key={loc.id} value={loc.id}>{loc.code}</option>)}
           </select>
-          <input className="input mono" style={{ width: 80 }} inputMode="numeric" placeholder="Qty" value={l.quantity} onChange={(e) => setLine(i, 'quantity', e.target.value)} />
+          <input data-testid="line-qty" className="input mono" style={{ width: 80 }} inputMode="numeric" placeholder="Qty" value={l.quantity} onChange={(e) => setLine(i, 'quantity', e.target.value)} />
           <button className="iconbtn" onClick={() => removeLine(i)} disabled={lines.length === 1} aria-label="Remove line"><Icon name="close" size={16} /></button>
         </div>
       ))}

@@ -117,16 +117,16 @@ function ProductModal({ product, onClose, onDone }) {
       </>}
     >
       <div className="form-row">
-        <div className="field"><label>SKU</label><input className="input mono" value={form.sku} onChange={set('sku')} disabled={!isNew} /></div>
-        <div className="field"><label>Barcode</label><input className="input mono" value={form.barcode || ''} onChange={set('barcode')} /></div>
+        <div className="field"><label>SKU</label><input name="sku" className="input mono" value={form.sku} onChange={set('sku')} disabled={!isNew} /></div>
+        <div className="field"><label>Barcode</label><input name="barcode" className="input mono" value={form.barcode || ''} onChange={set('barcode')} /></div>
       </div>
-      <div className="field"><label>Name</label><input className="input" value={form.name} onChange={set('name')} /></div>
+      <div className="field"><label>Name</label><input name="name" className="input" value={form.name} onChange={set('name')} /></div>
       <div className="form-row">
         <div className="field"><label>Category</label><input className="input" value={form.category || ''} onChange={set('category')} /></div>
         <div className="field"><label>Unit</label><input className="input mono" value={form.unit || 'EA'} onChange={set('unit')} /></div>
       </div>
       <div className="form-row">
-        <div className="field"><label>Reorder point</label><input className="input mono" inputMode="numeric" value={form.reorder_point} onChange={set('reorder_point')} /></div>
+        <div className="field"><label>Reorder point</label><input name="reorder_point" className="input mono" inputMode="numeric" value={form.reorder_point} onChange={set('reorder_point')} /></div>
         <div />
       </div>
       <div className="field"><label>Description</label><textarea className="input" rows={3} value={form.description || ''} onChange={set('description')} /></div>
