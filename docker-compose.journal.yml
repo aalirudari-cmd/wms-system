@@ -1,0 +1,43 @@
+# Local stack for the Trading Checklist & Trade Journal app.
+#   docker compose -f docker-compose.journal.yml up
+# Backend serves the API on :4100, the built SPA is served by Vite preview / any
+# static host. For development run `npm run dev` in server/ and web/ instead.
+services:
+  journal-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: journal
+      POSTGRES_PASSWORD: journal_secret
+      POSTGRES_DB: journal
+    ports:
+      - '5432:5432'
+    volumes:
+      - journal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U journal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  journal-api:
+    build: ./server
+    environment:
+      POSTGRES_HOST: journal-db
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: journal
+      POSTGRES_PASSWORD: journal_secret
+      POSTGRES_DB: journal
+      JWT_SECRET: change-me-in-production
+      PORT: '4100'
+      SEED_DEMO: 'true'
+    ports:
+      - '4100:4100'
+    volumes:
+      - journal_uploads:/app/uploads
+    depends_on:
+      journal-db:
+        condition: service_healthy
+
+volumes:
+  journal_pgdata:
+  journal_uploads:
