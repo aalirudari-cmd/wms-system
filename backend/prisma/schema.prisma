@@ -1,0 +1,868 @@
+// Stockhaus WMS — database schema.
+// See ARCHITECTURE.md section 2 for the reasoning behind these shapes
+// (single stock ledger, self-referencing location hierarchy, permission
+// tables instead of a role enum).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Auth / RBAC
+// ─────────────────────────────────────────────────────────────────────────
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  isSystem    Boolean          @default(false) // seeded roles cannot be deleted
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          Int              @id @default(autoincrement())
+  key         String           @unique // e.g. "receiving:create"
+  module      String // e.g. "receiving" - for grouping in the UI
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  email         String    @unique
+  passwordHash  String
+  fullName      String
+  roleId        Int
+  role          Role      @relation(fields: [roleId], references: [id])
+  active        Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+  stockMovements     StockMovement[]
+  receiptsCreated    GoodsReceipt[]     @relation("ReceiptCreatedBy")
+  putAwayTasks       PutAwayTask[]      @relation("PutAwayConfirmedBy")
+  transfersRequested Transfer[]         @relation("TransferRequestedBy")
+  transfersApproved  Transfer[]         @relation("TransferApprovedBy")
+  pickingListsAssigned PickingList[]    @relation("PickingAssignedTo")
+  packagesClosed     Package[]          @relation("PackageClosedBy")
+  cycleCountsCreated CycleCount[]       @relation("CycleCountCreatedBy")
+  cycleCountsApproved CycleCount[]      @relation("CycleCountApprovedBy")
+  notifications      Notification[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // e.g. "update", "delete", "approve"
+  entityType String // e.g. "Product", "Transfer"
+  entityId   Int?
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Master data
+// ─────────────────────────────────────────────────────────────────────────
+
+model Warehouse {
+  id        Int        @id @default(autoincrement())
+  code      String     @unique
+  name      String
+  address   String?
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  deletedAt DateTime?
+  locations Location[]
+
+  @@map("warehouses")
+}
+
+enum LocationType {
+  WAREHOUSE
+  ZONE
+  AREA
+  AISLE
+  RACK
+  SHELF
+  BIN
+}
+
+enum LocationStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+  FULL
+}
+
+model Location {
+  id            Int            @id @default(autoincrement())
+  warehouseId   Int
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id])
+  parentId      Int?
+  parent        Location?      @relation("LocationHierarchy", fields: [parentId], references: [id])
+  children      Location[]     @relation("LocationHierarchy")
+  code          String         @unique
+  name          String
+  type          LocationType
+  barcode       String?        @unique
+  qrCode        String?        @unique
+  capacity      Decimal?       @db.Decimal(14, 4)
+  capacityUnit  String?
+  allowMixedSku Boolean        @default(true)
+  status        LocationStatus @default(ACTIVE)
+  createdAt     DateTime       @default(now())
+  deletedAt     DateTime?
+
+  inventoryItems      InventoryItem[]
+  pallets             Pallet[]
+  goodsReceiptLines   GoodsReceiptLine[]
+  putAwaySuggested    PutAwayTask[]      @relation("PutAwaySuggestedLocation")
+  putAwayActual       PutAwayTask[]      @relation("PutAwayActualLocation")
+  transferLinesFrom   TransferLine[]     @relation("TransferFromLocation")
+  transferLinesTo     TransferLine[]     @relation("TransferToLocation")
+  pickingListLines    PickingListLine[]
+  cycleCountLines     CycleCountLine[]
+  movementsFrom       StockMovement[]    @relation("MovementFromLocation")
+  movementsTo         StockMovement[]    @relation("MovementToLocation")
+
+  @@index([warehouseId, type])
+  @@index([parentId])
+  @@map("locations")
+}
+
+model Unit {
+  id       Int       @id @default(autoincrement())
+  code     String    @unique // "EA", "BOX", "PLT"
+  name     String
+  products Product[]
+
+  @@map("units")
+}
+
+model Category {
+  id        Int        @id @default(autoincrement())
+  name      String
+  parentId  Int?
+  parent    Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryHierarchy")
+  products  Product[]
+  deletedAt DateTime?
+
+  @@map("categories")
+}
+
+model Brand {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  deletedAt DateTime?
+  products  Product[]
+
+  @@map("brands")
+}
+
+model Supplier {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
+
+  purchaseOrders PurchaseOrder[]
+  asns           Asn[]
+  goodsReceipts  GoodsReceipt[]
+  batches        Batch[]
+
+  @@map("suppliers")
+}
+
+model Customer {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  active      Boolean   @default(true)
+  deletedAt   DateTime?
+
+  salesOrders SalesOrder[]
+
+  @@map("customers")
+}
+
+model Product {
+  id            Int       @id @default(autoincrement())
+  sku           String    @unique
+  barcode       String?   @unique
+  name          String
+  description   String?
+  categoryId    Int?
+  category      Category? @relation(fields: [categoryId], references: [id])
+  brandId       Int?
+  brand         Brand?    @relation(fields: [brandId], references: [id])
+  unitId        Int
+  unit          Unit      @relation(fields: [unitId], references: [id])
+  reorderPoint  Int       @default(0)
+  weightKg      Decimal?  @db.Decimal(10, 3)
+  trackBatch    Boolean   @default(false)
+  trackSerial   Boolean   @default(false)
+  trackExpiry   Boolean   @default(false)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+
+  inventoryItems       InventoryItem[]
+  batches              Batch[]
+  serialNumbers        SerialNumber[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  asnLines             AsnLine[]
+  goodsReceiptLines    GoodsReceiptLine[]
+  putAwayTasks         PutAwayTask[]
+  transferLines        TransferLine[]
+  salesOrderLines      SalesOrderLine[]
+  pickingListLines     PickingListLine[]
+  packageLines         PackageLine[]
+  cycleCountLines      CycleCountLine[]
+  stockMovements       StockMovement[]
+  palletItems          PalletItem[]
+
+  @@index([barcode])
+  @@map("products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Inventory / stock ledger
+// ─────────────────────────────────────────────────────────────────────────
+
+model Batch {
+  id               Int       @id @default(autoincrement())
+  productId        Int
+  product          Product   @relation(fields: [productId], references: [id])
+  batchNumber      String
+  manufactureDate  DateTime?
+  expiryDate       DateTime?
+  supplierId       Int?
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  createdAt        DateTime  @default(now())
+
+  inventoryItems InventoryItem[]
+  palletItems    PalletItem[]
+  movements      StockMovement[]
+
+  @@unique([productId, batchNumber])
+  @@map("batches")
+}
+
+enum SerialStatus {
+  IN_STOCK
+  RESERVED
+  SHIPPED
+  DAMAGED
+}
+
+model SerialNumber {
+  id           Int          @id @default(autoincrement())
+  productId    Int
+  product      Product      @relation(fields: [productId], references: [id])
+  serialNumber String
+  status       SerialStatus @default(IN_STOCK)
+  createdAt    DateTime     @default(now())
+
+  inventoryItems InventoryItem[]
+  palletItems    PalletItem[]
+  movements      StockMovement[]
+
+  @@unique([productId, serialNumber])
+  @@map("serial_numbers")
+}
+
+model Pallet {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  locationId    Int?
+  location      Location? @relation(fields: [locationId], references: [id])
+  mixedAllowed  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  items          PalletItem[]
+  movements      StockMovement[]
+  putAwayTasks   PutAwayTask[]
+  transferLines  TransferLine[]
+  pickingLines   PickingListLine[]
+
+  @@map("pallets")
+}
+
+model PalletItem {
+  id         Int           @id @default(autoincrement())
+  palletId   Int
+  pallet     Pallet        @relation(fields: [palletId], references: [id], onDelete: Cascade)
+  productId  Int
+  product    Product       @relation(fields: [productId], references: [id])
+  batchId    Int?
+  batch      Batch?        @relation(fields: [batchId], references: [id])
+  serialId   Int?
+  serial     SerialNumber? @relation(fields: [serialId], references: [id])
+  quantity   Decimal       @db.Decimal(14, 4)
+
+  @@map("pallet_items")
+}
+
+// One row per (warehouse, location, product, batch, serial) combination.
+// This is the on-hand truth; StockMovement is the immutable history that explains it.
+model InventoryItem {
+  id                 Int           @id @default(autoincrement())
+  warehouseId        Int
+  locationId         Int
+  location           Location      @relation(fields: [locationId], references: [id])
+  productId          Int
+  product            Product       @relation(fields: [productId], references: [id])
+  batchId            Int?
+  batch              Batch?        @relation(fields: [batchId], references: [id])
+  serialId           Int?
+  serial             SerialNumber? @relation(fields: [serialId], references: [id])
+  quantityAvailable  Decimal       @default(0) @db.Decimal(14, 4)
+  quantityReserved   Decimal       @default(0) @db.Decimal(14, 4)
+  quantityBlocked    Decimal       @default(0) @db.Decimal(14, 4)
+  quantityDamaged    Decimal       @default(0) @db.Decimal(14, 4)
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([locationId, productId, batchId, serialId], name: "inventoryItemKey")
+  @@index([warehouseId, productId])
+  @@map("inventory_items")
+}
+
+enum MovementType {
+  RECEIPT
+  PUTAWAY
+  TRANSFER
+  PICK
+  PACK
+  SHIPMENT
+  ADJUSTMENT
+  CYCLE_COUNT
+}
+
+// Append-only. Never updated, never deleted — the audit trail of every
+// quantity change in the system, regardless of which module caused it.
+model StockMovement {
+  id             Int           @id @default(autoincrement())
+  type           MovementType
+  productId      Int
+  product        Product       @relation(fields: [productId], references: [id])
+  batchId        Int?
+  batch          Batch?        @relation(fields: [batchId], references: [id])
+  serialId       Int?
+  serial         SerialNumber? @relation(fields: [serialId], references: [id])
+  palletId       Int?
+  pallet         Pallet?       @relation(fields: [palletId], references: [id])
+  fromLocationId Int?
+  fromLocation   Location?     @relation("MovementFromLocation", fields: [fromLocationId], references: [id])
+  toLocationId   Int?
+  toLocation     Location?     @relation("MovementToLocation", fields: [toLocationId], references: [id])
+  quantityDelta  Decimal       @db.Decimal(14, 4)
+  documentType   String? // "GoodsReceipt", "Transfer", "PickingList", ...
+  documentId     Int?
+  reason         String?
+  userId         Int?
+  user           User?         @relation(fields: [userId], references: [id])
+  createdAt      DateTime      @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([documentType, documentId])
+  @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Receiving
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PurchaseOrderStatus {
+  DRAFT
+  CONFIRMED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id           Int                 @id @default(autoincrement())
+  poNumber     String              @unique
+  supplierId   Int
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  status       PurchaseOrderStatus @default(DRAFT)
+  expectedDate DateTime?
+  notes        String?
+  createdAt    DateTime            @default(now())
+
+  lines         PurchaseOrderLine[]
+  asns          Asn[]
+  goodsReceipts GoodsReceipt[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id               Int           @id @default(autoincrement())
+  purchaseOrderId  Int
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId        Int
+  product          Product       @relation(fields: [productId], references: [id])
+  quantityOrdered  Decimal       @db.Decimal(14, 4)
+  quantityReceived Decimal       @default(0) @db.Decimal(14, 4)
+
+  @@map("purchase_order_lines")
+}
+
+enum AsnStatus {
+  EXPECTED
+  IN_TRANSIT
+  ARRIVED
+  CLOSED
+}
+
+// Advance Shipping Notice
+model Asn {
+  id              Int           @id @default(autoincrement())
+  asnNumber       String        @unique
+  supplierId      Int
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  purchaseOrderId Int?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  status          AsnStatus     @default(EXPECTED)
+  expectedDate    DateTime?
+  createdAt       DateTime      @default(now())
+
+  lines         AsnLine[]
+  goodsReceipts GoodsReceipt[]
+
+  @@map("asns")
+}
+
+model AsnLine {
+  id        Int     @id @default(autoincrement())
+  asnId     Int
+  asn       Asn     @relation(fields: [asnId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Decimal @db.Decimal(14, 4)
+
+  @@map("asn_lines")
+}
+
+enum GoodsReceiptStatus {
+  WAITING
+  RECEIVING
+  RECEIVED
+  COMPLETED
+  REJECTED
+}
+
+model GoodsReceipt {
+  id              Int                @id @default(autoincrement())
+  receiptNumber   String             @unique
+  purchaseOrderId Int?
+  purchaseOrder   PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
+  asnId           Int?
+  asn             Asn?               @relation(fields: [asnId], references: [id])
+  supplierId      Int?
+  supplier        Supplier?          @relation(fields: [supplierId], references: [id])
+  status          GoodsReceiptStatus @default(WAITING)
+  notes           String?
+  createdById     Int
+  createdBy       User               @relation("ReceiptCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime           @default(now())
+  completedAt     DateTime?
+
+  lines      GoodsReceiptLine[]
+  putAwayTasks PutAwayTask[]
+
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id               Int          @id @default(autoincrement())
+  goodsReceiptId   Int
+  goodsReceipt     GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  productId        Int
+  product          Product      @relation(fields: [productId], references: [id])
+  locationId       Int?
+  location         Location?    @relation(fields: [locationId], references: [id])
+  batchNumber      String?
+  serialNumbers    String[]     @default([])
+  manufactureDate  DateTime?
+  expiryDate       DateTime?
+  quantityExpected Decimal      @default(0) @db.Decimal(14, 4)
+  quantityReceived Decimal      @default(0) @db.Decimal(14, 4)
+  quantityDamaged  Decimal      @default(0) @db.Decimal(14, 4)
+  quantityMissing  Decimal      @default(0) @db.Decimal(14, 4)
+  comments         String?
+  photos           ReceiptPhoto[]
+
+  @@map("goods_receipt_lines")
+}
+
+model ReceiptPhoto {
+  id                 Int              @id @default(autoincrement())
+  goodsReceiptLineId Int
+  goodsReceiptLine   GoodsReceiptLine @relation(fields: [goodsReceiptLineId], references: [id], onDelete: Cascade)
+  url                String
+  uploadedAt         DateTime         @default(now())
+
+  @@map("receipt_photos")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Put Away
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PutAwayStatus {
+  PENDING
+  CONFIRMED
+  EXCEPTION
+}
+
+model PutAwayTask {
+  id                    Int           @id @default(autoincrement())
+  goodsReceiptId        Int
+  goodsReceipt          GoodsReceipt  @relation(fields: [goodsReceiptId], references: [id])
+  productId             Int
+  product               Product       @relation(fields: [productId], references: [id])
+  palletId              Int?
+  pallet                Pallet?       @relation(fields: [palletId], references: [id])
+  quantity              Decimal       @db.Decimal(14, 4)
+  suggestedLocationId   Int?
+  suggestedLocation     Location?     @relation("PutAwaySuggestedLocation", fields: [suggestedLocationId], references: [id])
+  actualLocationId      Int?
+  actualLocation        Location?     @relation("PutAwayActualLocation", fields: [actualLocationId], references: [id])
+  status                PutAwayStatus @default(PENDING)
+  confirmedById         Int?
+  confirmedBy           User?         @relation("PutAwayConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedAt           DateTime?
+  createdAt             DateTime      @default(now())
+
+  @@map("put_away_tasks")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Internal Transfer
+// ─────────────────────────────────────────────────────────────────────────
+
+enum TransferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Transfer {
+  id             Int             @id @default(autoincrement())
+  transferNumber String          @unique
+  status         TransferStatus  @default(DRAFT)
+  requestedById  Int
+  requestedBy    User            @relation("TransferRequestedBy", fields: [requestedById], references: [id])
+  approvedById   Int?
+  approvedBy     User?           @relation("TransferApprovedBy", fields: [approvedById], references: [id])
+  createdAt      DateTime        @default(now())
+  completedAt    DateTime?
+
+  lines TransferLine[]
+
+  @@map("transfers")
+}
+
+model TransferLine {
+  id                Int      @id @default(autoincrement())
+  transferId        Int
+  transfer          Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId         Int
+  product           Product  @relation(fields: [productId], references: [id])
+  palletId          Int?
+  pallet            Pallet?  @relation(fields: [palletId], references: [id])
+  fromLocationId    Int
+  fromLocation      Location @relation("TransferFromLocation", fields: [fromLocationId], references: [id])
+  toLocationId      Int
+  toLocation        Location @relation("TransferToLocation", fields: [toLocationId], references: [id])
+  quantity          Decimal  @db.Decimal(14, 4)
+  quantityConfirmed Decimal  @default(0) @db.Decimal(14, 4)
+
+  @@map("transfer_lines")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Picking (sales orders, waves, picking lists)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum SalesOrderStatus {
+  OPEN
+  ALLOCATED
+  PICKING
+  PICKED
+  PACKED
+  SHIPPED
+  CANCELLED
+}
+
+model SalesOrder {
+  id             Int              @id @default(autoincrement())
+  orderNumber    String           @unique
+  customerId     Int
+  customer       Customer         @relation(fields: [customerId], references: [id])
+  status         SalesOrderStatus @default(OPEN)
+  requestedDate  DateTime?
+  createdAt      DateTime         @default(now())
+
+  lines        SalesOrderLine[]
+  pickingLists PickingList[]
+  packages     Package[]
+
+  @@map("sales_orders")
+}
+
+model SalesOrderLine {
+  id              Int        @id @default(autoincrement())
+  salesOrderId    Int
+  salesOrder      SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  productId       Int
+  product         Product    @relation(fields: [productId], references: [id])
+  quantityOrdered Decimal    @db.Decimal(14, 4)
+
+  @@map("sales_order_lines")
+}
+
+enum PickingListType {
+  SINGLE
+  MULTI
+  WAVE
+}
+
+enum PickingListStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Wave {
+  id          Int           @id @default(autoincrement())
+  waveNumber  String        @unique
+  status      String        @default("open")
+  createdAt   DateTime      @default(now())
+  pickingLists PickingList[]
+
+  @@map("waves")
+}
+
+model PickingList {
+  id             Int                @id @default(autoincrement())
+  waveId         Int?
+  wave           Wave?              @relation(fields: [waveId], references: [id])
+  salesOrderId   Int?
+  salesOrder     SalesOrder?        @relation(fields: [salesOrderId], references: [id])
+  type           PickingListType    @default(SINGLE)
+  status         PickingListStatus  @default(PENDING)
+  assignedToId   Int?
+  assignedTo     User?              @relation("PickingAssignedTo", fields: [assignedToId], references: [id])
+  routeOptimized Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  completedAt    DateTime?
+
+  lines PickingListLine[]
+
+  @@map("picking_lists")
+}
+
+enum PickingLineStatus {
+  PENDING
+  PICKED
+  SHORT
+  EXCEPTION
+}
+
+enum PickingExceptionType {
+  SHORT_PICK
+  WRONG_ITEM
+  WRONG_QUANTITY
+  DAMAGED_GOODS
+}
+
+model PickingListLine {
+  id              Int                   @id @default(autoincrement())
+  pickingListId   Int
+  pickingList     PickingList           @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  productId       Int
+  product         Product               @relation(fields: [productId], references: [id])
+  locationId      Int
+  location        Location              @relation(fields: [locationId], references: [id])
+  palletId        Int?
+  pallet          Pallet?               @relation(fields: [palletId], references: [id])
+  sequence        Int                   @default(0) // route order
+  quantityToPick  Decimal               @db.Decimal(14, 4)
+  quantityPicked  Decimal               @default(0) @db.Decimal(14, 4)
+  status          PickingLineStatus     @default(PENDING)
+  exceptionType   PickingExceptionType?
+
+  @@map("picking_list_lines")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Packing
+// ─────────────────────────────────────────────────────────────────────────
+
+enum PackageStatus {
+  OPEN
+  CLOSED
+}
+
+model Package {
+  id                Int           @id @default(autoincrement())
+  salesOrderId      Int
+  salesOrder        SalesOrder    @relation(fields: [salesOrderId], references: [id])
+  packageNumber     String        @unique
+  status            PackageStatus @default(OPEN)
+  shippingLabelUrl  String?
+  weightKg          Decimal?      @db.Decimal(10, 3)
+  dimensions        String?
+  closedById        Int?
+  closedBy          User?         @relation("PackageClosedBy", fields: [closedById], references: [id])
+  closedAt          DateTime?
+  createdAt         DateTime      @default(now())
+
+  lines PackageLine[]
+
+  @@map("packages")
+}
+
+model PackageLine {
+  id        Int     @id @default(autoincrement())
+  packageId Int
+  package   Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Decimal @db.Decimal(14, 4)
+
+  @@map("package_lines")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Controlling (cycle counts / stock verification)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum CycleCountType {
+  RANDOM
+  FULL
+  CYCLE
+}
+
+enum CycleCountStatus {
+  DRAFT
+  IN_PROGRESS
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+model CycleCount {
+  id            Int              @id @default(autoincrement())
+  countNumber   String           @unique
+  type          CycleCountType   @default(CYCLE)
+  status        CycleCountStatus @default(DRAFT)
+  createdById   Int
+  createdBy     User             @relation("CycleCountCreatedBy", fields: [createdById], references: [id])
+  approvedById  Int?
+  approvedBy    User?            @relation("CycleCountApprovedBy", fields: [approvedById], references: [id])
+  createdAt     DateTime         @default(now())
+  approvedAt    DateTime?
+
+  lines CycleCountLine[]
+
+  @@map("cycle_counts")
+}
+
+model CycleCountLine {
+  id                Int        @id @default(autoincrement())
+  cycleCountId      Int
+  cycleCount        CycleCount @relation(fields: [cycleCountId], references: [id], onDelete: Cascade)
+  productId         Int
+  product           Product    @relation(fields: [productId], references: [id])
+  locationId        Int
+  location          Location   @relation(fields: [locationId], references: [id])
+  expectedQuantity  Decimal    @db.Decimal(14, 4)
+  countedQuantity   Decimal?   @db.Decimal(14, 4)
+  barcodeVerified   Boolean    @default(false)
+
+  @@map("cycle_count_lines")
+}

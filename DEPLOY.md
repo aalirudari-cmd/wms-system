@@ -5,8 +5,11 @@ This guide puts the app live on a single Linux server using Docker and Caddy
 
 ```
 Browser ──HTTPS──► Caddy :443 ──► frontend (nginx) ──/api──► backend ──► postgres
-                    (auto certs)     SPA + proxy        Express        (internal)
+                    (auto certs)     SPA + proxy     Express+Prisma    (internal)
 ```
+
+On first boot the backend runs Prisma migrations and seeds permissions, roles
+and the admin account automatically — no manual DB step.
 
 Only Caddy is exposed to the internet. The database and backend are reachable
 only on the internal Docker network.
@@ -33,22 +36,23 @@ curl -fsSL https://get.docker.com | sh
 
 ```bash
 git clone <your-repo-url> /opt/wms && cd /opt/wms
-git checkout claude/beautiful-rubin-3xt0db
+git checkout claude/wms-architecture-design-6h18n2
 cp .env.example .env
 ```
 
 Edit `.env` and set, at minimum:
 
 ```bash
-POSTGRES_PASSWORD=$(openssl rand -hex 16)     # strong db password
-JWT_SECRET=$(openssl rand -hex 32)            # long random secret
-SEED_ADMIN_PASSWORD=your-real-admin-password  # your first login
-SEED_DEMO=false                               # no demo manager/worker accounts
-SITE_ADDRESS=wms.yourcompany.com              # or leave as :80 to run by IP
+POSTGRES_PASSWORD=$(openssl rand -hex 16)      # strong db password
+JWT_ACCESS_SECRET=$(openssl rand -hex 32)      # long random secret
+JWT_REFRESH_SECRET=$(openssl rand -hex 32)     # a different long random secret
+SEED_ADMIN_PASSWORD=your-real-admin-password   # your first login
+SEED_DEMO=false                                # no demo accounts / sample data
+SITE_ADDRESS=wms.yourcompany.com               # or leave as :80 to run by IP
 ```
 
 > The production compose file refuses to start if `POSTGRES_PASSWORD`,
-> `JWT_SECRET` or `SEED_ADMIN_PASSWORD` are missing.
+> `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` or `SEED_ADMIN_PASSWORD` are missing.
 
 ## 5. Launch
 
@@ -61,7 +65,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 - By IP, open `http://YOUR_SERVER_IP`.
 
 Sign in as `admin` with the password you set. Because `SEED_DEMO=false`, only
-the admin account exists — create managers and workers under **Users**.
+the admin account exists — create staff and assign roles under **Users**.
 
 ## 6. Back ups
 
@@ -102,7 +106,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## Security checklist
 
-- [ ] `JWT_SECRET` and `POSTGRES_PASSWORD` are long and random
+- [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` and `POSTGRES_PASSWORD` are long and random
 - [ ] `SEED_DEMO=false` and the admin password is strong
 - [ ] Only ports 80/443 are open in the firewall (db/backend stay internal)
 - [ ] DNS + HTTPS in place before using camera scanning
